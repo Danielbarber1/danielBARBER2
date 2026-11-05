@@ -16,6 +16,18 @@ NUM_SEARCH_RESULTS = 4
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 BUSY_MESSAGE = "השרתים של הבינה המלאכותית עמוסים כרגע. נסה שוב בעוד רגע."
 
+# סקילים: כל סקיל משנה את אופן העבודה של העוזר בלי לשנות את הקוד
+SKILLS = {
+    "💬 כללי": "",
+    "💻 מתכנת": "אתה מתכנת מומחה. כתוב קוד נקי ומתועד, הסבר בקצרה מה עשית, ובדוק שגיאות לפני שאתה עונה.",
+    "🌍 מתרגם": "תרגם את הטקסט לשפה שהמשתמש ביקש. שמור על הטון והמשמעות והחזר בעיקר את התרגום.",
+    "📝 כותב תוכן": "כתוב טקסטים ברורים ומשכנעים: מיילים, פוסטים, תיאורי מוצר וסיכומים. תן גרסה קצרה וגרסה מפורטת.",
+    "🎓 מורה פרטי": "הסבר בצורה פשוטה עם דוגמאות מהחיים, ובסוף שאל שאלת בדיקה קצרה.",
+    "📊 אנליסט": "נתח את המידע בצורה מובנית: נקודות חוזק, סיכונים, ומה כדאי לעשות בפועל.",
+    "🖼️ מנתח תמונות": "תאר ונתח את התמונה בפירוט, וענה על השאלה של המשתמש לגביה.",
+    "🧠 מסכם": "סכם את הטקסט ב-5 נקודות עיקריות, ואחריהן משפט אחד של מסקנה.",
+}
+
 SYSTEM_PROMPT = f"""אתה העוזר של האפליקציה "{APP_NAME}".
 ענה בעברית, אלא אם המשתמש כותב בשפה אחרת. היה ברור, מדויק וידידותי.
 תשובות קצרות וממוקדות, בלי הקדמות מיותרות. הרחב רק כשהמשתמש מבקש פירוט.
@@ -190,11 +202,11 @@ class GeminiError(RuntimeError):
         self.status = status
 
 
-def ask_gemini(history: list[dict], max_attempts: int = 8, base_delay: float = 2.0, max_delay: float = 20.0) -> str:
+def ask_gemini(history: list[dict], system_prompt: str = SYSTEM_PROMPT, max_attempts: int = 8, base_delay: float = 2.0, max_delay: float = 20.0) -> str:
     """history: רשימת הודעות עם role ('user' / 'assistant') ו-parts (רשימת חלקים)."""
     for attempt in range(1, max_attempts + 1):
         try:
-            return _ask_gemini_once(history)
+            return _ask_gemini_once(history, system_prompt)
         except GeminiError as e:
             if e.status not in RETRYABLE_STATUS or attempt == max_attempts:
                 raise
@@ -206,7 +218,7 @@ def ask_gemini(history: list[dict], max_attempts: int = 8, base_delay: float = 2
     raise RuntimeError("נכשל אחרי מספר ניסיונות")
 
 
-def _ask_gemini_once(history: list[dict]) -> str:
+def _ask_gemini_once(history: list[dict], system_prompt: str) -> str:
     contents = [
         {"role": "model" if m["role"] == "assistant" else "user", "parts": m["parts"]}
         for m in history
@@ -215,7 +227,7 @@ def _ask_gemini_once(history: list[dict]) -> str:
         GEMINI_URL,
         headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY},
         json={
-            "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": contents,
             "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.4, "topP": 0.9},
         },
@@ -256,6 +268,7 @@ with st.sidebar:
         if st.button("➕ שיחה חדשה", use_container_width=True, type="primary"):
             new_chat()
             st.rerun()
+        skill_name = st.selectbox("סקיל", list(SKILLS.keys()))
         use_search = st.toggle("חיפוש ברשת", value=bool(TAVILY_KEY), disabled=not TAVILY_KEY)
         speak_answers = st.toggle("הקרא תשובות בקול", value=False)
         st.divider()
@@ -273,7 +286,7 @@ with st.sidebar:
                     st.session_state.current_id = None
                 st.rerun()
     else:
-        use_search, speak_answers = bool(TAVILY_KEY), False
+        use_search, speak_answers, skill_name = bool(TAVILY_KEY), False, "💬 כללי"
 
 # ---------- תוכן ראשי ----------
 if page == "🛠️ ניהול":
@@ -336,12 +349,15 @@ if prompt:
     text_for_model = user_text
 
     results = []
+    t_search = 0.0
     if typed_prompt and use_search and TAVILY_KEY:
         with st.spinner("מחפש ברשת..."):
+            t0 = time.perf_counter()
             try:
                 results = search_web(typed_prompt)
             except Exception:
                 results = []
+            t_search = time.perf_counter() - t0
     if results:
         text_for_model += f"\n\nתוצאות חיפוש עדכניות:\n{build_context(results)}"
 
@@ -361,23 +377,39 @@ if prompt:
         if not m.get("error")
     ]
     history.append({"role": "user", "parts": parts_now})
+    skill_text = SKILLS.get(skill_name, "")
+    system_prompt = SYSTEM_PROMPT + ("\n\nהסקיל הנוכחי: " + skill_text if skill_text else "")
 
     log_event("chat", display_text)
     sources = format_sources(results)
     with st.chat_message("assistant"):
         is_error = False
+        t_model_start = time.perf_counter()
         with st.spinner("כותב תשובה..."):
             try:
-                answer = ask_gemini(history)
+                answer = ask_gemini(history, system_prompt)
             except GeminiError as e:
                 is_error = True
                 answer = BUSY_MESSAGE if e.status in RETRYABLE_STATUS else f"הייתה שגיאה בקבלת התשובה: {e}"
             except Exception as e:
                 is_error = True
                 answer = BUSY_MESSAGE if isinstance(e, requests.RequestException) else f"הייתה שגיאה: {e}"
+        t_model = time.perf_counter() - t_model_start
         st.markdown(answer)
         if sources and not is_error:
             st.markdown(sources)
+        timing = f"⏱ מודל: {t_model:.1f} שנ'"
+        if t_search:
+            timing = f"⏱ חיפוש: {t_search:.1f} שנ' | " + timing
+        st.caption(timing)
+        if not is_error:
+            st.download_button(
+                "⬇️ הורד את התשובה",
+                data=answer,
+                file_name="ai_vino_answer.md",
+                mime="text/markdown",
+                key=f"dl_{uuid.uuid4().hex[:6]}",
+            )
 
         audio_answer = None
         if speak_answers and not is_error:

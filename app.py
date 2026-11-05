@@ -10,7 +10,7 @@ import streamlit as st
 
 # ---------- הגדרות ----------
 APP_NAME = "AI VINO"
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-2.0-flash"  # <-- תיקון למודל היציב והמהיר ביותר
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 NUM_SEARCH_RESULTS = 4
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}

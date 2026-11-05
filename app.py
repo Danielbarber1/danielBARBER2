@@ -49,7 +49,9 @@ st.markdown("""
             #0b0b14;
     }
     .block-container { max-width: 860px; padding-top: 2.2rem; padding-bottom: 6rem; }
-    #MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; height: 0; }
+    #MainMenu, footer { visibility: hidden; }
+    /* השאר את שורת הכותרת גלויה: בה נמצא כפתור פתיחת סרגל הצד */
+    header[data-testid="stHeader"] { background: transparent; }
     .brand {
         font-size: 2.6rem; font-weight: 800; text-align: center; letter-spacing: -0.5px;
         background: linear-gradient(90deg, #a78bfa, #7c3aed 40%, #06b6d4);

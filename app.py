@@ -89,6 +89,8 @@ def get_secret(name: str, default: str = "") -> str:
 GEMINI_KEY = get_secret("GEMINI_API_KEY")
 TAVILY_KEY = get_secret("TAVILY_API_KEY")
 ADMIN_EMAIL = get_secret("ADMIN_EMAIL").strip().lower()
+# REQUIRE_LOGIN = "true" -> דורש התחברות עם Google. אחרת האפליקציה פתוחה בלי התחברות.
+REQUIRE_LOGIN = get_secret("REQUIRE_LOGIN", "false").strip().lower() == "true"
 
 
 # ---------- התחברות עם Google ----------
@@ -116,7 +118,8 @@ def require_admin_login() -> None:
         st.stop()
 
 
-require_admin_login()
+if REQUIRE_LOGIN:
+    require_admin_login()
 
 if not GEMINI_KEY:
     st.error("חסר GEMINI_API_KEY ב-Secrets.")
@@ -243,9 +246,10 @@ def text_to_speech(text: str) -> bytes | None:
 # ---------- סרגל צד ----------
 with st.sidebar:
     st.markdown(f"## 🤖 {APP_NAME}")
-    st.caption(f"מחובר: {st.user.email}")
+    if REQUIRE_LOGIN:
+        st.caption(f"מחובר: {st.user.email}")
     page = st.radio("מסך", ["💬 צ'אט", "🛠️ ניהול"], label_visibility="collapsed")
-    if st.button("🚪 התנתק", use_container_width=True):
+    if REQUIRE_LOGIN and st.button("🚪 התנתק", use_container_width=True):
         st.logout()
 
     if page == "💬 צ'אט":
